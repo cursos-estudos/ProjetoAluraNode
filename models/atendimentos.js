@@ -1,109 +1,90 @@
 const axios = require('axios')
 const moment = require('moment')
-const conexao = require('../infraestrutura/conexão')
+const conexao = require('../infraestrutura/database/conexão')
+const repositorio = require('../repositorios/atendimentos')
 
 class Atendimento {
-    
-    adiciona(atendimento, res) {
 
-        const dataCriacao = new Date()
-        const data = moment(atendimento.data, 'DD/MM/YYYY').format('YYYY-MM-DD HH:MM:SS')
+    constructor() {
+        this.dataEhValida = ({data, dataCriacao}) => moment(data).isSameOrAfter(dataCriacao)
+        this.clientEhValido = (tamanho) => tamanho >=5
 
-        const dataEhValida = moment(data).isSameOrAfter(dataCriacao)
-        const clientEhValido = atendimento.cliente.length >=5
+        this.valida = parametros => this.validacoes.filter(campo => {
+            const { nome } = campo
+            const parametro = parametros[nome]
 
-        const validacoes = [
+            return !campo.valido(parametro)
+        })
+
+        this.validacoes = [
             {   nome:'data',
-                valido: dataEhValida,
+                valido: this.dataEhValida,
                 mensagem: 'Data deve ser maior ou igual a data atual'
             },
             {
                 nome: 'cliente',
-                valido: clientEhValido,
-                mensagem: 'Cliente deve ter pelomenos 5 caracteres' 
+                valido: this.clientEhValido,
+                mensagem: 'Cliente deve ter pelo menos 5 caracteres' 
             }
         ]
+    }
+    
+    adiciona(atendimento) {
 
-        const erros = validacoes.filter(campo => !campo.valido)
+        const dataCriacao = new Date()
+        const data = moment(atendimento.data, 'DD/MM/YYYY').format('YYYY-MM-DD HH:MM:SS')
+
+        
+        const parametros = {
+            data: { data, dataCriacao },
+            cliente: { tamanho: atendimento.cliente.length }
+        }
+        
+
+        const erros = this.valida(parametros)
         const existemErros = erros.length
 
         if(existemErros){
-            res.status(400).json(erros)
+            return new Promise((resolve,reject) => reject(erros))            
         } else{
-            const atendimentoDatado = {...atendimento, dataCriacao, data}
-            const sql = 'INSERT INTO Atendimentos SET ?'
+            const atendimentoDatado = { ...atendimento, dataCriacao, data }
 
-            conexao.query(sql, atendimentoDatado, (erro, resultados) => {
-                if(erro) {
-                    res.status(400).json(erro)
-                } else {
-                    res.status(201).json(atendimento)
-                }
-            })
+            
+            return repositorio.adiciona(atendimentoDatado)
+                .then(resultados =>{
+                    const id = resultados.insertId
+                    return ({ ...atendimento,id })
+                })            
         }
     }
 
-    lista(res){
-
-        const sql = 'SELECT * from atendimentos'
-
-        conexao.query(sql, (erro,resultados) => {
-            if(erro){
-                res.status(400).json(erro)
-            } else{
-                res.status(200).json(resultados)
-            }
-        })
+    lista(){        
+        return repositorio.lista()        
     }
 
-    buscaPorId(id, res){
-        const sql = `SELECT * FROM atendimentos WHERE id=${id}`
+    buscaPorId(id){       
         
-        conexao.query(sql, async (erro, resultados) => {
-            const atendimento = resultados[0]
-            const cpf = atendimento.cliente
-            if(erro){
-                res.status(400).json(erro)
-            } else{
-                const { data } = await axios.get(`http://localhost:8082/${cpf}`)
-                atendimento.cliente = data
-                res.status(200).json(atendimento)
-            }
-        })
-
-     
-
+        const atendimento = repositorio.buscaPorId(id)       
+        
+        return atendimento
+        
+        
     }
 
-    altera(id, valores, res){
+    altera(id, valores){
+
         if(valores.data){
+            valores.data = moment(valores.data, 'DD/MM/YYYY').format('YYYY-MM-DD HH:MM:SS')            
+        } 
+        
 
-            valores.data = moment(valores.data, 'DD/MM/YYYY').format('YYYY-MM-DD HH:MM:SS')
-        }
-
-        const sql = 'UPDATE atendimentos SET ? WHERE id=?'
-
-        conexao.query(sql, [valores, id], (erro, resultados) => {
-            if(erro){
-                res.status(400).json(erro)
-            } else{
-                res.status(200).json({...valores, id})
-            }
-        })
+        return repositorio.alterar(id, valores)        
     }
 
-    deleta(id, res) {
-        const sql = 'DELETE FROM atendimentos WHERE id=?'
+    deleta(id) {
+        
 
-        conexao.query(sql, id, (erro,resultados) => {
-
-            if(erro) {
-                res.status(400).json(erro)
-            } else {
-                res.status(200).json({id})
-            }
-
-        })
+        return repositorio.deleta(id)        
     }
 }
 
